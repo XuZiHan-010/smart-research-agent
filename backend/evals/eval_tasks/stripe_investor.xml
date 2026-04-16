@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Task: Stripe vs Braintree + Adyen — Investor Teardown (Snapshot)
+  Use case: VC due diligence on payment infrastructure players.
+  Runtime estimate: ~5 min (snapshot depth, 3 dimensions)
+-->
+<evaluation>
+  <task id="stripe_vs_braintree_investor">
+    <target_company>Stripe</target_company>
+    <target_website>https://stripe.com</target_website>
+    <competitors>Braintree,Adyen</competitors>
+    <report_type>investor_teardown</report_type>
+    <depth>snapshot</depth>
+    <structural_checks>
+      <!-- Report structure -->
+      <required_section>Executive Summary</required_section>
+      <required_section>Traction</required_section>
+      <required_section>Market</required_section>
+      <min_report_length>1500</min_report_length>
+      <!-- Sources -->
+      <min_sources>3</min_sources>
+      <!-- Battlecard -->
+      <battlecard_target>Stripe</battlecard_target>
+      <battlecard_has_competitor>Braintree</battlecard_has_competitor>
+      <battlecard_has_competitor>Adyen</battlecard_has_competitor>
+      <battlecard_has_win_themes>true</battlecard_has_win_themes>
+    </structural_checks>
+  </task>
+</evaluation>

@@ -1,0 +1,31 @@
+# ── Secrets (NEVER commit) ───────────────────────────────────────────────────
+.env
+*.key
+*.pem
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Node (local dev only) ─────────────────────────────────────────────────────
+frontend/node_modules/
+
+# frontend/dist is intentionally NOT ignored — it's committed so Railway
+# can serve the pre-built frontend without needing Node.js at deploy time.
+
+# ── OS / Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

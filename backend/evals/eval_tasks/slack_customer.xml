@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Task: Slack vs Microsoft Teams + Discord — Customer Voice (Snapshot)
+  Use case: Product team mining customer sentiment and churn signals.
+  Runtime estimate: ~5 min (snapshot depth, 2 dimensions)
+-->
+<evaluation>
+  <task id="slack_vs_teams_customer">
+    <target_company>Slack</target_company>
+    <target_website>https://slack.com</target_website>
+    <competitors>Microsoft Teams,Discord</competitors>
+    <report_type>customer_voice</report_type>
+    <depth>snapshot</depth>
+    <structural_checks>
+      <!-- Report structure -->
+      <required_section>Executive Summary</required_section>
+      <required_section>Sentiment</required_section>
+      <min_report_length>1500</min_report_length>
+      <!-- Sources -->
+      <min_sources>3</min_sources>
+      <!-- Battlecard -->
+      <battlecard_target>Slack</battlecard_target>
+      <battlecard_has_competitor>Microsoft Teams</battlecard_has_competitor>
+      <battlecard_has_competitor>Discord</battlecard_has_competitor>
+      <battlecard_has_objection_handlers>true</battlecard_has_objection_handlers>
+    </structural_checks>
+  </task>
+</evaluation>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Task: Notion vs Obsidian + Coda — Pricing Focus (Snapshot)
+  Use case: Quick pricing/product comparison for a SaaS PM.
+  Runtime estimate: ~5 min (snapshot depth)
+-->
+<evaluation>
+  <task id="notion_vs_obsidian_pricing">
+    <target_company>Notion</target_company>
+    <target_website>https://www.notion.so</target_website>
+    <competitors>Obsidian,Coda</competitors>
+    <report_type>pricing_focus</report_type>
+    <depth>snapshot</depth>
+    <structural_checks>
+      <!-- Report structure -->
+      <required_section>Executive Summary</required_section>
+      <required_section>Product</required_section>
+      <required_section>Pricing</required_section>
+      <min_report_length>1500</min_report_length>
+      <!-- Sources -->
+      <min_sources>3</min_sources>
+      <!-- Battlecard -->
+      <battlecard_target>Notion</battlecard_target>
+      <battlecard_has_competitor>Obsidian</battlecard_has_competitor>
+      <battlecard_has_competitor>Coda</battlecard_has_competitor>
+      <battlecard_has_feature_matrix>true</battlecard_has_feature_matrix>
+    </structural_checks>
+  </task>
+</evaluation>

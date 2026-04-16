@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-base:     #070b11;
+  --bg-surface:  #0d1421;
+  --bg-elevated: #141e2f;
+  --border:      #1e2f47;
+  --accent:      #c9922a;
+  --accent-glow: rgba(201, 146, 42, 0.12);
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg-base);
+  color: #dde4f0;
+  font-family: 'DM Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Dot-grid background */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(circle, #1e2f47 1px, transparent 1px);
+  background-size: 28px 28px;
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Scanline sweep */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(201, 146, 42, 0.025) 50%,
+    transparent 100%
+  );
+  background-size: 100% 200px;
+  animation: scan 10s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+
+#root { position: relative; z-index: 1; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #1e2f47; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #2a4060; }
+
+/* Markdown styles in report */
+.report-content h1 {
+  font-family: 'Cormorant', Georgia, serif;
+  font-size: 1.75rem;
+  font-weight: 500;
+  color: #dde4f0;
+  margin: 1.5rem 0 0.75rem;
+  letter-spacing: -0.01em;
+}
+.report-content h2 {
+  font-family: 'Cormorant', Georgia, serif;
+  font-size: 1.35rem;
+  font-weight: 500;
+  color: #c9922a;
+  margin: 1.25rem 0 0.5rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.report-content h3 {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #8094b4;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 1rem 0 0.4rem;
+}
+.report-content p {
+  font-size: 0.925rem;
+  line-height: 1.75;
+  color: #bbc8df;
+  margin-bottom: 0.75rem;
+}
+.report-content ul, .report-content ol {
+  padding-left: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+.report-content li {
+  font-size: 0.9rem;
+  line-height: 1.7;
+  color: #bbc8df;
+  margin-bottom: 0.25rem;
+}
+.report-content strong { color: #dde4f0; font-weight: 500; }
+.report-content code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  background: #141e2f;
+  color: #c9922a;
+  padding: 0.1em 0.4em;
+  border-radius: 3px;
+  border: 1px solid #1e2f47;
+}
+.report-content blockquote {
+  border-left: 2px solid #c9922a;
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: #8094b4;
+  font-style: italic;
+}
+.report-content hr {
+  border: none;
+  border-top: 1px solid #1e2f47;
+  margin: 1.25rem 0;
+}
