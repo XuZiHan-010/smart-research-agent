@@ -29,7 +29,7 @@ COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-8000}/api/health || exit 1
+    CMD curl -f http://localhost:8000/api/health || exit 1
 
 # Start the application
-CMD ["gunicorn", "api:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:${PORT:-8000}", "--workers", "1", "--timeout", "300", "--keep-alive", "75"]
+CMD gunicorn api:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --workers 1 --timeout 300 --keep-alive 75
