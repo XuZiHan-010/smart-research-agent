@@ -23,6 +23,12 @@ frontend/node_modules/
 # frontend/dist is intentionally NOT ignored — it's committed so Railway
 # can serve the pre-built frontend without needing Node.js at deploy time.
 
+# ── Dev / Claude Code tooling (not relevant to the project itself) ────────────
+.claude/
+CLAUDE.md
+OPTIMIZATION_PROMPT.md
+.pytest_cache/
+
 # ── OS / Editor ───────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
