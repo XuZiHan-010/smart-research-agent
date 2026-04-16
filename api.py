@@ -49,12 +49,8 @@ _EXTRA_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://localhost:8000",
-        *_EXTRA_ORIGINS,           # e.g. https://research.yourcompany.com
-    ],
+    allow_origin_regex=r"(https?://)?(localhost|127\.0\.0\.1)(:\d+)?|https://.*\.up\.railway\.app",
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
