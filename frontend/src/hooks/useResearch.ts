@@ -105,7 +105,7 @@ export function useResearch() {
         if (jobId) {
           fetch(`${API}/api/research/${jobId}/battlecard`)
             .then(r => r.ok ? r.json() : null)
-            .then(d => { if (d?.battlecard) setBattlecard(d.battlecard) })
+            .then(d => { if (d?.battlecard?.target) setBattlecard(d.battlecard) })
             .catch(() => {})
         }
       }

@@ -57,7 +57,7 @@ _NEWS_QUERY_VARIANTS = [
 
 
 def _get_exa() -> Exa:
-    return Exa(api_key=os.getenv("EXA_API_KEY", ""))
+    return Exa(api_key=os.getenv("EXA_API_KEY", "").strip())
 
 
 def _get_llm() -> ChatOpenAI:

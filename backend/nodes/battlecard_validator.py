@@ -187,14 +187,21 @@ async def battlecard_validator_node(state: CompetitorResearchState) -> Dict[str,
             "dimension": "product_pricing",
         })
     if not pricing_ok:
-        quality_flags.append({
-            "severity": "fail",
-            "code": "PRICING_TOO_MANY_UNKNOWNS",
-            "message": f"Pricing comparison has too many unknown entries ({pricing_unknown_ratio:.0%}).",
-            "dimension": "product_pricing",
-        })
         if "product_pricing" in active_dims:
+            quality_flags.append({
+                "severity": "fail",
+                "code": "PRICING_TOO_MANY_UNKNOWNS",
+                "message": f"Pricing comparison has too many unknown entries ({pricing_unknown_ratio:.0%}).",
+                "dimension": "product_pricing",
+            })
             retry_dimensions.append("product_pricing")
+        else:
+            quality_flags.append({
+                "severity": "info",
+                "code": "PRICING_NOT_RESEARCHED",
+                "message": "Pricing data sparse (not an active dimension for this report type).",
+                "dimension": "product_pricing",
+            })
 
     conflicts = _detect_theme_conflicts(battlecard)
     conflict_ok = len(conflicts) == 0

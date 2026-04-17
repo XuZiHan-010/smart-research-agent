@@ -131,71 +131,6 @@ export function Sidebar({ onStart, onDiscover, onReset, isRunning }: Props) {
             <Hint>{REPORT_TYPE_OPTIONS.find(o => o.value === reportType)?.description}</Hint>
           </section>
 
-          {/* Competitors tag input */}
-          <section>
-            <div className="flex items-center justify-between mb-2">
-              <Label inline>Competitors</Label>
-              <span className="font-mono text-[10px] text-text-muted">
-                {competitorNames.length}/5 · press Enter to add
-              </span>
-            </div>
-
-            {/* Tags + input */}
-            <div
-              onClick={() => tagRef.current?.focus()}
-              className="min-h-[38px] flex flex-wrap gap-1.5 p-2 bg-elevated border border-border
-                         rounded cursor-text focus-within:border-accent
-                         focus-within:ring-1 focus-within:ring-accent/20 transition-colors"
-            >
-              {competitorNames.map(name => (
-                <span
-                  key={name}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-accent/10 border
-                             border-accent/30 rounded text-xs text-accent font-mono"
-                >
-                  {name}
-                  <button
-                    type="button"
-                    onClick={() => removeTag(name)}
-                    className="text-accent/60 hover:text-accent transition-colors"
-                  >
-                    <X size={10} />
-                  </button>
-                </span>
-              ))}
-              {competitorNames.length < 5 && (
-                <input
-                  ref={tagRef}
-                  value={tagInput}
-                  onChange={e => setTagInput(e.target.value)}
-                  onKeyDown={handleTagKey}
-                  onBlur={() => tagInput && addTag(tagInput)}
-                  placeholder={competitorNames.length === 0 ? 'Type a name…' : ''}
-                  disabled={isRunning}
-                  className="flex-1 min-w-[80px] bg-transparent outline-none text-sm
-                             text-text-primary placeholder:text-text-muted font-body"
-                />
-              )}
-            </div>
-
-            {/* Auto-discover button */}
-            {!isRunning && (
-              <button
-                type="button"
-                onClick={() => canSubmit && onDiscover(cfg())}
-                disabled={!canSubmit}
-                className="mt-2 w-full flex items-center justify-center gap-2 py-1.5
-                           border border-border rounded text-xs font-mono text-text-secondary
-                           hover:border-accent/50 hover:text-accent disabled:opacity-30
-                           disabled:cursor-not-allowed transition-colors"
-              >
-                <Search size={11} />
-                Auto-Discover Competitors
-              </button>
-            )}
-            <Hint>Leave empty for full auto-discovery</Hint>
-          </section>
-
           {/* Research Depth */}
           <section>
             <Label tooltip={
@@ -309,6 +244,71 @@ export function Sidebar({ onStart, onDiscover, onReset, isRunning }: Props) {
                 </motion.div>
               )}
             </AnimatePresence>
+          </section>
+
+          {/* Competitors tag input */}
+          <section>
+            <div className="flex items-center justify-between mb-2">
+              <Label inline>Competitors</Label>
+              <span className="font-mono text-[10px] text-text-muted">
+                {competitorNames.length}/5 · press Enter to add
+              </span>
+            </div>
+
+            {/* Tags + input */}
+            <div
+              onClick={() => tagRef.current?.focus()}
+              className="min-h-[38px] flex flex-wrap gap-1.5 p-2 bg-elevated border border-border
+                         rounded cursor-text focus-within:border-accent
+                         focus-within:ring-1 focus-within:ring-accent/20 transition-colors"
+            >
+              {competitorNames.map(name => (
+                <span
+                  key={name}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-accent/10 border
+                             border-accent/30 rounded text-xs text-accent font-mono"
+                >
+                  {name}
+                  <button
+                    type="button"
+                    onClick={() => removeTag(name)}
+                    className="text-accent/60 hover:text-accent transition-colors"
+                  >
+                    <X size={10} />
+                  </button>
+                </span>
+              ))}
+              {competitorNames.length < 5 && (
+                <input
+                  ref={tagRef}
+                  value={tagInput}
+                  onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={handleTagKey}
+                  onBlur={() => tagInput && addTag(tagInput)}
+                  placeholder={competitorNames.length === 0 ? 'Type a name…' : ''}
+                  disabled={isRunning}
+                  className="flex-1 min-w-[80px] bg-transparent outline-none text-sm
+                             text-text-primary placeholder:text-text-muted font-body"
+                />
+              )}
+            </div>
+
+            {/* Auto-discover button */}
+            {!isRunning && (
+              <button
+                type="button"
+                onClick={() => canSubmit && onDiscover(cfg())}
+                disabled={!canSubmit}
+                className="mt-2 w-full flex items-center justify-center gap-2 py-1.5
+                           border border-border rounded text-xs font-mono text-text-secondary
+                           hover:border-accent/50 hover:text-accent disabled:opacity-30
+                           disabled:cursor-not-allowed transition-colors"
+              >
+                <Search size={11} />
+                Auto-Discover Competitors
+              </button>
+            )}
+            <Hint>Leave empty for full auto-discovery</Hint>
           </section>
         </div>
 

@@ -50,7 +50,7 @@ _exa_client = None
 def _get_exa() -> Exa:
     global _exa_client
     if _exa_client is None:
-        _exa_client = Exa(api_key=os.getenv("EXA_API_KEY", ""))
+        _exa_client = Exa(api_key=os.getenv("EXA_API_KEY", "").strip())
     return _exa_client
 
 

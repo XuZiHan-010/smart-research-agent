@@ -24,7 +24,7 @@ export function BattlecardView({ battlecard }: Props) {
         <span className="px-2.5 py-1 bg-accent/10 border border-accent/30 rounded text-xs font-mono text-accent">
           ★ {battlecard.target}
         </span>
-        {battlecard.competitors.map(c => (
+        {battlecard.competitors?.map(c => (
           <span key={c} className="px-2.5 py-1 bg-elevated border border-border rounded text-xs font-mono text-text-secondary">
             {c}
           </span>
@@ -40,7 +40,7 @@ export function BattlecardView({ battlecard }: Props) {
               <thead>
                 <tr className="border-b border-border bg-elevated">
                   <th className="text-left px-3 py-2 text-text-muted font-normal w-40">Feature</th>
-                  {[battlecard.target, ...battlecard.competitors].map(c => (
+                  {[battlecard.target, ...(battlecard.competitors ?? [])].map(c => (
                     <th key={c} className="px-3 py-2 text-center text-text-muted font-normal">
                       {c}
                     </th>
@@ -51,7 +51,7 @@ export function BattlecardView({ battlecard }: Props) {
                 {battlecard.feature_matrix.map((row, i) => (
                   <tr key={i} className={`border-b border-border ${i % 2 === 0 ? 'bg-surface' : 'bg-elevated'}`}>
                     <td className="px-3 py-2 text-text-secondary">{row.feature}</td>
-                    {[battlecard.target, ...battlecard.competitors].map(c => {
+                    {[battlecard.target, ...(battlecard.competitors ?? [])].map(c => {
                       const val = row.companies?.[c] ?? 'unknown'
                       return (
                         <td key={c} className="px-3 py-2 text-center">

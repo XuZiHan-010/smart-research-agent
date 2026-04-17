@@ -512,7 +512,8 @@ async def download_report(
 
     if format == "pdf":
         from backend.services.pdf_service import PDFService
-        ok, result = PDFService().generate_pdf_bytes(report, company)
+        language = job.get("language", "en")
+        ok, result = PDFService().generate_pdf_bytes(report, company, language=language)
         if not ok:
             raise HTTPException(500, f"PDF generation failed: {result}")
         return Response(

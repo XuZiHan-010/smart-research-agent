@@ -25,32 +25,24 @@ from reportlab.pdfbase.ttfonts import TTFont
 logger = logging.getLogger(__name__)
 
 # ── Unicode font registration ────────────────────────────────────────────────
-# Register a TTF font for full Unicode support (subscripts, CJK, symbols).
-# Falls back to built-in Helvetica if no TTF found.
+# Register TTF fonts for Unicode support. Latin fonts (Arial/DejaVu) for English,
+# CJK fonts (Microsoft YaHei / Noto Sans CJK) for Chinese.
 
 _FONT_FAMILY = "Helvetica"          # default fallback
 _FONT_FAMILY_BOLD = "Helvetica-Bold"
 _FONT_FAMILY_ITALIC = "Helvetica-Oblique"
 
-_TTF_CANDIDATES = [
-    # Windows
-    "C:/Windows/Fonts/arial.ttf",
-    "C:/Windows/Fonts/arialbd.ttf",    # bold
-    "C:/Windows/Fonts/ariali.ttf",     # italic
-    # Linux
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
-    # macOS
-    "/Library/Fonts/Arial.ttf",
-]
+_CJK_FONT_FAMILY: str | None = None
+_CJK_FONT_FAMILY_BOLD: str | None = None
 
 
 def _register_unicode_fonts():
-    """Try to register a TTF font family. Returns (normal, bold, italic) names."""
+    """Register Latin and CJK font families."""
     global _FONT_FAMILY, _FONT_FAMILY_BOLD, _FONT_FAMILY_ITALIC
-    # Pair: (candidate_path, registration_name)
-    registrations = [
+    global _CJK_FONT_FAMILY, _CJK_FONT_FAMILY_BOLD
+
+    # ── Latin fonts ──────────────────────────────────────────────────────
+    latin_registrations = [
         ("C:/Windows/Fonts/arial.ttf",    "Arial"),
         ("C:/Windows/Fonts/arialbd.ttf",  "Arial-Bold"),
         ("C:/Windows/Fonts/ariali.ttf",   "Arial-Italic"),
@@ -59,7 +51,7 @@ def _register_unicode_fonts():
         ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf", "DejaVu-Italic"),
     ]
     registered = {}
-    for path, name in registrations:
+    for path, name in latin_registrations:
         if os.path.exists(path):
             try:
                 pdfmetrics.registerFont(TTFont(name, path))
@@ -71,14 +63,73 @@ def _register_unicode_fonts():
         _FONT_FAMILY = "Arial"
         _FONT_FAMILY_BOLD = registered.get("Arial-Bold") and "Arial-Bold" or "Arial"
         _FONT_FAMILY_ITALIC = registered.get("Arial-Italic") and "Arial-Italic" or "Arial"
-        logger.info("PDF: registered Arial TTF (full Unicode support)")
+        logger.info("PDF: registered Arial TTF (Latin)")
     elif "DejaVu" in registered:
         _FONT_FAMILY = "DejaVu"
         _FONT_FAMILY_BOLD = registered.get("DejaVu-Bold") and "DejaVu-Bold" or "DejaVu"
         _FONT_FAMILY_ITALIC = registered.get("DejaVu-Italic") and "DejaVu-Italic" or "DejaVu"
-        logger.info("PDF: registered DejaVu TTF (full Unicode support)")
+        logger.info("PDF: registered DejaVu TTF (Latin)")
     else:
         logger.warning("PDF: no TTF fonts found, using Helvetica (limited Unicode)")
+
+    # ── CJK fonts ────────────────────────────────────────────────────────
+    cjk_registrations = [
+        # Windows — Microsoft YaHei (.ttc, subfontIndex=0)
+        ("C:/Windows/Fonts/msyh.ttc",    "MSYH",      0),
+        ("C:/Windows/Fonts/msyhbd.ttc",   "MSYH-Bold", 0),
+        # Linux — Noto Sans CJK (installed via fonts-noto-cjk package)
+        ("/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf", "NotoSansCJK",      None),
+        ("/usr/share/fonts/opentype/noto/NotoSansCJKsc-Bold.otf",    "NotoSansCJK-Bold", None),
+        # Alternative Linux paths
+        ("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",   "NotoSansCJK",      0),
+        ("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",      "NotoSansCJK-Bold", 0),
+    ]
+    cjk_registered = {}
+    for entry in cjk_registrations:
+        path, name, subfont_index = entry
+        if name in cjk_registered:
+            continue  # already registered this name
+        if not os.path.exists(path):
+            continue
+        try:
+            if subfont_index is not None:
+                pdfmetrics.registerFont(TTFont(name, path, subfontIndex=subfont_index))
+            else:
+                pdfmetrics.registerFont(TTFont(name, path))
+            cjk_registered[name] = True
+        except Exception as exc:
+            logger.debug("PDF: failed to register CJK font %s: %s", name, exc)
+
+    if "MSYH" in cjk_registered:
+        _CJK_FONT_FAMILY = "MSYH"
+        _CJK_FONT_FAMILY_BOLD = "MSYH-Bold" if "MSYH-Bold" in cjk_registered else "MSYH"
+        logger.info("PDF: registered Microsoft YaHei (CJK)")
+    elif "NotoSansCJK" in cjk_registered:
+        _CJK_FONT_FAMILY = "NotoSansCJK"
+        _CJK_FONT_FAMILY_BOLD = "NotoSansCJK-Bold" if "NotoSansCJK-Bold" in cjk_registered else "NotoSansCJK"
+        logger.info("PDF: registered Noto Sans CJK")
+    else:
+        logger.warning("PDF: no CJK fonts found — Chinese PDF output will have missing glyphs")
+
+
+def _has_cjk(text: str) -> bool:
+    """Return True if text contains CJK Unified Ideographs."""
+    for ch in text[:2000]:
+        if '\u4e00' <= ch <= '\u9fff' or '\u3400' <= ch <= '\u4dbf':
+            return True
+    return False
+
+
+def _resolve_fonts(language: str, text: str) -> tuple:
+    """Pick the right font triple (normal, bold, italic) based on language/content."""
+    use_cjk = (language == "zh" or _has_cjk(text)) and _CJK_FONT_FAMILY is not None
+    if use_cjk:
+        return (
+            _CJK_FONT_FAMILY,
+            _CJK_FONT_FAMILY_BOLD or _CJK_FONT_FAMILY,
+            _CJK_FONT_FAMILY,  # CJK fonts typically don't have italic; reuse normal
+        )
+    return _FONT_FAMILY, _FONT_FAMILY_BOLD, _FONT_FAMILY_ITALIC
 
 
 _register_unicode_fonts()
@@ -103,10 +154,9 @@ _UNICODE_SUBS = {
 }
 
 
-def _sanitize_for_pdf(text: str) -> str:
-    """Replace Unicode chars the registered font may not support."""
-    if _FONT_FAMILY != "Helvetica":
-        # TTF fonts handle most Unicode; only fix truly exotic chars
+def _sanitize_for_pdf(text: str, font: str = "Helvetica") -> str:
+    """Replace Unicode chars the font may not support. Skip for any registered TTF."""
+    if font != "Helvetica":
         return text
     for char, replacement in _UNICODE_SUBS.items():
         text = text.replace(char, replacement)
@@ -125,62 +175,62 @@ _BRAND_LINK    = colors.HexColor("#1a6fb5")
 
 # ── Styles ────────────────────────────────────────────────────────────────────
 
-def _build_styles():
+def _build_styles(font: str, font_bold: str):
     base = getSampleStyleSheet()
 
     styles = {
         "cover_title": ParagraphStyle(
             "CoverTitle", parent=base["Title"],
-            fontName=_FONT_FAMILY_BOLD,
+            fontName=font_bold,
             fontSize=28, leading=34, spaceAfter=8,
             textColor=_BRAND_DARK, alignment=TA_LEFT,
         ),
         "cover_subtitle": ParagraphStyle(
             "CoverSubtitle", parent=base["Normal"],
-            fontName=_FONT_FAMILY,
+            fontName=font,
             fontSize=12, leading=16, spaceAfter=4,
             textColor=_BRAND_MUTED, alignment=TA_LEFT,
         ),
         "cover_meta": ParagraphStyle(
             "CoverMeta", parent=base["Normal"],
-            fontName=_FONT_FAMILY,
+            fontName=font,
             fontSize=10, leading=14, spaceAfter=2,
             textColor=_BRAND_MUTED, alignment=TA_LEFT,
         ),
         "h1": ParagraphStyle(
             "H1", parent=base["Heading1"],
-            fontName=_FONT_FAMILY_BOLD,
+            fontName=font_bold,
             fontSize=20, spaceAfter=12, spaceBefore=6,
             textColor=_BRAND_DARK,
         ),
         "h2": ParagraphStyle(
             "H2", parent=base["Heading2"],
-            fontName=_FONT_FAMILY_BOLD,
+            fontName=font_bold,
             fontSize=15, spaceAfter=8, spaceBefore=14,
             textColor=_BRAND_DARK,
             borderPad=4,
         ),
         "h3": ParagraphStyle(
             "H3", parent=base["Heading3"],
-            fontName=_FONT_FAMILY_BOLD,
+            fontName=font_bold,
             fontSize=12, spaceAfter=6, spaceBefore=8,
             textColor=colors.HexColor("#0f3460"),
         ),
         "body": ParagraphStyle(
             "Body", parent=base["Normal"],
-            fontName=_FONT_FAMILY,
+            fontName=font,
             fontSize=10, leading=15, spaceAfter=6,
             alignment=TA_JUSTIFY,
         ),
         "bullet": ParagraphStyle(
             "Bullet", parent=base["Normal"],
-            fontName=_FONT_FAMILY,
+            fontName=font,
             fontSize=10, leading=14, spaceAfter=3,
             leftIndent=12,
         ),
         "ref": ParagraphStyle(
             "Ref", parent=base["Normal"],
-            fontName=_FONT_FAMILY,
+            fontName=font,
             fontSize=8, leading=11, spaceAfter=2,
             textColor=_BRAND_MUTED,
         ),
@@ -190,40 +240,48 @@ def _build_styles():
 
 # ── Page template callbacks ──────────────────────────────────────────────────
 
-def _header_footer(canvas, doc):
-    """Draw page number footer and thin accent line at top."""
-    canvas.saveState()
-    width, height = A4
+def _make_header_footer(font: str):
+    """Create a header/footer callback that uses the given font."""
+    def _header_footer(canvas, doc):
+        canvas.saveState()
+        width, height = A4
 
-    # Top accent line
-    canvas.setStrokeColor(_BRAND_ACCENT)
-    canvas.setLineWidth(1.5)
-    canvas.line(2.5 * cm, height - 1.8 * cm, width - 2.5 * cm, height - 1.8 * cm)
+        # Top accent line
+        canvas.setStrokeColor(_BRAND_ACCENT)
+        canvas.setLineWidth(1.5)
+        canvas.line(2.5 * cm, height - 1.8 * cm, width - 2.5 * cm, height - 1.8 * cm)
 
-    # Footer: page number on the right, branding on the left
-    canvas.setFont(_FONT_FAMILY, 8)
-    canvas.setFillColor(_BRAND_MUTED)
-    canvas.drawString(2.5 * cm, 1.5 * cm, "Competitive Intelligence Report")
-    canvas.drawRightString(width - 2.5 * cm, 1.5 * cm, f"Page {doc.page}")
+        # Footer: page number on the right, branding on the left
+        canvas.setFont(font, 8)
+        canvas.setFillColor(_BRAND_MUTED)
+        canvas.drawString(2.5 * cm, 1.5 * cm, "Competitive Intelligence Report")
+        canvas.drawRightString(width - 2.5 * cm, 1.5 * cm, f"Page {doc.page}")
 
-    # Bottom accent line
-    canvas.setStrokeColor(_BRAND_ACCENT)
-    canvas.setLineWidth(0.5)
-    canvas.line(2.5 * cm, 1.9 * cm, width - 2.5 * cm, 1.9 * cm)
+        # Bottom accent line
+        canvas.setStrokeColor(_BRAND_ACCENT)
+        canvas.setLineWidth(0.5)
+        canvas.line(2.5 * cm, 1.9 * cm, width - 2.5 * cm, 1.9 * cm)
 
-    canvas.restoreState()
+        canvas.restoreState()
+    return _header_footer
 
 
 # ── Converter ─────────────────────────────────────────────────────────────────
 
 class PDFService:
     def generate_pdf_bytes(
-        self, markdown_text: str, company_name: str
+        self, markdown_text: str, company_name: str, language: str = "en",
     ) -> Tuple[bool, Union[bytes, str]]:
         """
         Returns (True, pdf_bytes) on success, (False, error_message) on failure.
         """
         try:
+            # Resolve fonts based on language / content
+            font, font_bold, font_italic = _resolve_fonts(language, markdown_text)
+            self._font = font
+            self._font_bold = font_bold
+            self._font_italic = font_italic
+
             buf = io.BytesIO()
             doc = SimpleDocTemplate(
                 buf,
@@ -233,11 +291,12 @@ class PDFService:
                 topMargin=2.5 * cm,
                 bottomMargin=2.5 * cm,
             )
-            styles = _build_styles()
+            styles = _build_styles(font, font_bold)
             story  = self._build_cover(company_name, markdown_text, styles)
             story.append(PageBreak())
             story += self._parse_markdown(markdown_text, styles)
-            doc.build(story, onFirstPage=lambda c, d: None, onLaterPages=_header_footer)
+            header_footer = _make_header_footer(font)
+            doc.build(story, onFirstPage=lambda c, d: None, onLaterPages=header_footer)
             return True, buf.getvalue()
         except Exception as exc:
             return False, str(exc)
@@ -285,8 +344,8 @@ class PDFService:
 
         meta_table = Table(meta_data, colWidths=[3.5 * cm, 10 * cm])
         meta_table.setStyle(TableStyle([
-            ("FONTNAME",   (0, 0), (0, -1), _FONT_FAMILY_BOLD),
-            ("FONTNAME",   (1, 0), (1, -1), _FONT_FAMILY),
+            ("FONTNAME",   (0, 0), (0, -1), self._font_bold),
+            ("FONTNAME",   (1, 0), (1, -1), self._font),
             ("FONTSIZE",   (0, 0), (-1, -1), 9),
             ("TEXTCOLOR",  (0, 0), (0, -1), _BRAND_MUTED),
             ("TEXTCOLOR",  (1, 0), (1, -1), _BRAND_TEXT),
@@ -306,7 +365,7 @@ class PDFService:
         ))
         story.append(Paragraph(
             f"Generated by <b>Intelligence Briefing System</b> · {report_date}",
-            ParagraphStyle("CoverFooter", fontSize=8, textColor=_BRAND_MUTED, alignment=TA_LEFT),
+            ParagraphStyle("CoverFooter", fontName=self._font, fontSize=8, textColor=_BRAND_MUTED, alignment=TA_LEFT),
         ))
 
         return story
@@ -403,24 +462,26 @@ class PDFService:
         flush_bullets()
         return story
 
-    @staticmethod
-    def _inline(text: str) -> str:
+    def _inline(self, text: str) -> str:
         """Convert inline markdown (bold, italic, links) to ReportLab XML."""
         # Sanitize Unicode chars the font may not support
-        text = _sanitize_for_pdf(text)
+        text = _sanitize_for_pdf(text, self._font)
 
         # Escape XML special chars first (before we add our own tags)
         text = text.replace("&", "&amp;")
         text = text.replace("<", "&lt;").replace(">", "&gt;")
 
         # bold — use font name tag for TTF compatibility
-        bold_tag = f'<font name="{_FONT_FAMILY_BOLD}">' if _FONT_FAMILY != "Helvetica" else "<b>"
-        bold_close = "</font>" if _FONT_FAMILY != "Helvetica" else "</b>"
+        font_bold = self._font_bold
+        font_italic = self._font_italic
+        is_ttf = self._font != "Helvetica"
+        bold_tag = f'<font name="{font_bold}">' if is_ttf else "<b>"
+        bold_close = "</font>" if is_ttf else "</b>"
         text = re.sub(r"\*\*(.+?)\*\*", rf"{bold_tag}\1{bold_close}", text)
         text = re.sub(r"__(.+?)__",     rf"{bold_tag}\1{bold_close}", text)
         # italic
-        italic_tag = f'<font name="{_FONT_FAMILY_ITALIC}">' if _FONT_FAMILY != "Helvetica" else "<i>"
-        italic_close = "</font>" if _FONT_FAMILY != "Helvetica" else "</i>"
+        italic_tag = f'<font name="{font_italic}">' if is_ttf else "<i>"
+        italic_close = "</font>" if is_ttf else "</i>"
         text = re.sub(r"\*(.+?)\*", rf"{italic_tag}\1{italic_close}", text)
         text = re.sub(r"_(.+?)_",   rf"{italic_tag}\1{italic_close}", text)
         # links [text](url) → clickable blue link
