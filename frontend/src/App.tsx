@@ -8,6 +8,7 @@ import { ProgressTracker }  from './components/ProgressTracker'
 import { ReportViewer }     from './components/ReportViewer'
 import { HistoryDrawer }    from './components/HistoryDrawer'
 import { EmptyState }       from './components/EmptyState'
+import { LandscapePrompt }  from './components/LandscapePrompt'
 import { useResearch }      from './hooks/useResearch'
 
 import { ResearchConfig, CompanyInput } from './types'
@@ -94,6 +95,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      <LandscapePrompt />
       {/* Sidebar — config form */}
       <Sidebar
         onStart={handleStart}
