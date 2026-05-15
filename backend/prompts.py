@@ -1,365 +1,119 @@
-"""
-All LLM prompts for the Competitor Research Agent.
-
-Sections:
-  1. Comparator prompts (Gemini 2.5 Flash)
-  2. Battlecard prompt (GPT-4.1-mini)
-  3. Editor prompts (GPT-4.1)
-"""
+"""LLM prompts for the Market Study Agent."""
 
 from langchain_core.prompts import ChatPromptTemplate
 
 
-_COMPARATOR_RULES = """
-Rules:
-- Base every claim on provided excerpts only; never invent facts.
-- Start with market lens and comparison basis before conclusions.
-- Include concrete numbers whenever present (revenue, growth, pricing, ratings, dates).
-- Cite sources inline using the format (Source Name, Month Year) — e.g. (Reuters, Mar 2025) or (Henkel Annual Report, 2025). NEVER use bare numeric references like (1), (8), or [3].
-- If data is sparse, state it explicitly instead of padding.
-- If pricing evidence is largely missing, explicitly say:
-  "Public pricing unavailable for large parts of the market."
-- Keep output concise, structured, and consultant-grade in markdown.
-"""
-
-_COMPARATOR_HUMAN_BLOCK = """Compare **{target_company}** against: {competitors}
-Focus hint: {comparator_focus}
-
-Comparison basis:
-{comparison_basis}
-
-Competitor rationale:
-{competitor_rationale_text}
-
-Research data (one section per company):
-{dimension_data}
-"""
-
-
-PRODUCT_PRICING_COMPARATOR_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            f"""You are a product intelligence analyst writing a cross-company comparison.
-Adapt to the company type reflected in evidence:
-- SaaS: tiers, packaging, free-vs-paid, per-seat/usage, enterprise motion.
-- Industrial/B2B materials: product lines, specs, quote-based pricing, distributor/direct channels.
-- Consumer: SKU ranges, pack sizes, RRP, retail channel differences.
-{_COMPARATOR_RULES}""",
-        ),
-        (
-            "human",
-            _COMPARATOR_HUMAN_BLOCK
-            + """
-Write:
-1. Portfolio overlap and product differentiation
-2. Pricing transparency, entry points, procurement model, enterprise motion
-3. Where {target_company} wins and where it lags
-""",
-        ),
-    ]
-)
-
-MARKET_POSITION_COMPARATOR_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            f"""You are a market intelligence analyst.
-Focus on positioning, segments, brand perception, analyst mentions, and share signals.
-{_COMPARATOR_RULES}""",
-        ),
-        (
-            "human",
-            _COMPARATOR_HUMAN_BLOCK
-            + """
-Write:
-1. Positioning map and segment focus
-2. Industry/analyst recognition and visibility
-3. Strategic implications for {target_company}
-""",
-        ),
-    ]
-)
-
-TRACTION_GROWTH_COMPARATOR_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            f"""You are a growth analyst.
-Use metrics appropriate to company type (public enterprise, private, startup) and avoid forcing irrelevant KPI frames.
-{_COMPARATOR_RULES}""",
-        ),
-        (
-            "human",
-            _COMPARATOR_HUMAN_BLOCK
-            + """
-Write:
-1. Scale and growth evidence
-2. Strategic moves (M&A, expansion, partnerships)
-3. Momentum comparison and implications for {target_company}
-""",
-        ),
-    ]
-)
-
-CUSTOMER_SENTIMENT_COMPARATOR_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            f"""You are a customer intelligence analyst.
-Use sentiment sources appropriate to company type (SaaS review platforms, industrial references, or consumer channels).
-{_COMPARATOR_RULES}""",
-        ),
-        (
-            "human",
-            _COMPARATOR_HUMAN_BLOCK
-            + """
-Write:
-1. Overall sentiment and evidence sources
-2. Repeated strengths and complaints
-3. Sentiment risks/opportunities for {target_company}
-""",
-        ),
-    ]
-)
-
-CONTENT_GTM_COMPARATOR_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            f"""You are a GTM strategist.
-Compare sales motion, content strategy, channel ecosystem, and go-to-market execution signals.
-{_COMPARATOR_RULES}""",
-        ),
-        (
-            "human",
-            _COMPARATOR_HUMAN_BLOCK
-            + """
-Write:
-1. Sales and channel motion comparison
-2. Content and campaign footprint
-3. GTM edge and gaps for {target_company}
-""",
-        ),
-    ]
-)
-
-RECENT_ACTIVITY_COMPARATOR_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            f"""You are a competitive intelligence analyst summarizing recent activity.
-Focus on launches, leadership moves, partnerships, acquisitions, and strategic signals.
-{_COMPARATOR_RULES}""",
-        ),
-        (
-            "human",
-            _COMPARATOR_HUMAN_BLOCK
-            + """
-Write:
-1. Most relevant recent moves by each company
-2. What those moves imply strategically
-3. Momentum risks/opportunities for {target_company}
-""",
-        ),
-    ]
-)
-
-
-DIMENSION_COMPARATOR_PROMPTS = {
-    "product_pricing": PRODUCT_PRICING_COMPARATOR_PROMPT,
-    "market_position": MARKET_POSITION_COMPARATOR_PROMPT,
-    "traction_growth": TRACTION_GROWTH_COMPARATOR_PROMPT,
-    "customer_sentiment": CUSTOMER_SENTIMENT_COMPARATOR_PROMPT,
-    "content_gtm": CONTENT_GTM_COMPARATOR_PROMPT,
-    "recent_activity": RECENT_ACTIVITY_COMPARATOR_PROMPT,
-}
-
-
-BATTLECARD_SYSTEM = """You are a sales enablement specialist building a competitive battlecard.
-Return ONLY valid JSON with no markdown fences and no extra commentary.
-Use null for unknown values."""
-
-BATTLECARD_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", BATTLECARD_SYSTEM),
-        (
-            "human",
-            """Build a competitive battlecard for **{target_company}** vs: {competitors}
-
-Research comparisons:
-{comparisons_text}
-
-Structured evidence bundle:
-{dimension_evidence}
-
-Competitor rationale:
-{competitor_rationale_text}
-
-Return JSON matching exactly:
+DOMAIN_VALIDATOR_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """你是市场研究助手。判断用户输入的研究领域是否清晰无歧义。
+仅返回 JSON，不要 Markdown。
+规则：
+1. 若输入包含行业/产品服务范围，并且地理范围或市场边界清晰，confirmed=true。
+2. 若存在错别字、缩写、多义、过宽、过窄，confirmed=false，并给出 2-4 个澄清选项。
+3. 倾向保守，不要过度打断；只有高置信度认为不清晰才 confirmed=false。
+JSON schema:
 {{
-  "target": "{target_company}",
-  "competitors": {competitors_json},
-  "competitor_profiles": [
-    {{
-      "name": "<competitor>",
-      "rationale": "<why included>",
-      "threat_type": "direct_competitor" | "adjacent_threat" | "channel_threat" | "emerging_threat"
-    }}
-  ],
-  "feature_matrix": [
-    {{
-      "feature": "<capability>",
-      "companies": {{
-        "<company_name>": "yes" | "partial" | "no" | "unknown"
-      }}
-    }}
-  ],
-  "pricing_comparison": [
-    {{
-      "company": "<name>",
-      "model": "<pricing model>",
-      "entry_price": "<entry price or null>",
-      "enterprise": "<enterprise pricing note or null>"
-    }}
-  ],
-  "win_themes": [
-    {{
-      "vs_competitor": "<competitor>",
-      "theme": "<one-line win theme>",
-      "evidence": "<supporting evidence>"
-    }}
-  ],
-  "lose_themes": [
-    {{
-      "vs_competitor": "<competitor>",
-      "theme": "<one-line weakness>",
-      "evidence": "<supporting evidence>"
-    }}
-  ],
-  "key_risks": ["<risk>"],
-  "confidence_summary": {{
-    "<dimension>": "high" | "medium" | "low"
+  "confirmed": boolean,
+  "understood_as": string,
+  "ambiguities": [{{"option": string, "recommended": boolean, "why": string}}],
+  "message": string
+}}"""),
+    ("human", "研究领域：{domain}"),
+])
+
+
+THEME_REPORT_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """If research_domain is broad or ambiguous, choose a reasonable implicit sub-focus based on the available geography, time range, theme, and source material. Reflect that focus in your analysis without asking the user for another clarification."""),
+    ("system", """你是汉高市场部的中文市场调研 sub-agent。你只负责一个主题，必须基于给定搜索资料写 ThemeReport JSON。
+硬规则：
+- 输出必须是合法 JSON，不要 Markdown fence。
+- narrative 和表格内容使用中文；引用源标题可保留原文。
+- 每个重要事实陈述后必须带 [cite:doc_id]。
+- narrative 中每个量化判断必须包含具体数字、年份或实体名（公司/产品/政策/事件）；禁止”约X+”、”数据缺失”、”约5000+”等模糊占位；若该信息无可用资料，请写入 data_gaps，不要在正文中以模糊表述敷衍。
+- 表格必须严格使用 table_schema 指定的列名、列顺序和粒度，每行必须代表一个具体实体（一个年份、一家公司、一份政策文件、一笔事件、一个具体产品或技术方向），禁止按”上游/中游/下游”或”东部/中西部”等抽象类别合并行。
+- 表格 schema 中若包含”至少 N 行”要求，必须满足；竞争格局、政策、投融资三类主题表格必须 ≥ 5 行不同实体。
+- 表格中每一行的”来源”单元格必须包含一个或多个 [cite:doc_id] 标记，且这些 doc_id 必须出现在 citations 字段中。
+- 至少引用 8 个不同 doc_id；优先引用权威来源（gov.cn、miit.gov.cn、ndrc.gov.cn、caac.gov.cn、stats.gov.cn、caict.ac.cn、新华网/新华社、人民日报、上市公司官网与公告、行业协会与白皮书）。
+- key_entities 字段：必须从资料中抽取具体实体并标注来源 doc_id；用于支撑表格内容。
+- 如资料不足，明确写入 data_gaps，不要编造。
+- 多地理范围时必须覆盖所有地区并做对比。
+- 时间窗之外的信息只能作为背景，并标注不在时间范围内。
+- confidence 只能是 high/medium/low。
+返回 JSON schema:
+{{
+  “theme_key”: string,
+  “theme_label_zh”: string,
+  “is_custom”: boolean,
+  “narrative”: string,
+  “tables”: [{{“title”: string, “markdown”: string, “notes”: string}}],
+  “key_entities”: {{
+    “companies”: [{{“name”: string, “detail”: string, “doc_id”: string}}],
+    “policies”: [{{“name”: string, “issuer”: string, “date”: string, “doc_id”: string}}],
+    “investment_events”: [{{“date”: string, “company”: string, “amount”: string, “parties”: string, “doc_id”: string}}],
+    “products”: [{{“name”: string, “category”: string, “doc_id”: string}}],
+    “figures”: [{{“metric”: string, “value”: string, “year”: string, “region”: string, “doc_id”: string}}]
   }},
-  "data_gaps": ["<important gap>"],
-  "objection_handlers": [
-    {{
-      "objection": "<objection>",
-      "response": "<response>"
-    }}
-  ]
+  “citations”: {{“doc_id”: {{“doc_id”: string, “title”: string, “url”: string, “source”: string, “published_date”: string|null, “excerpt”: string}}}},
+  “confidence”: “high”|”medium”|”low”,
+  “data_gaps”: [string],
+  “forecast_section”: {{“historical”: string, “forecast”: string, “assumptions”: [string]}} | null
+}}"""),
+    ("human", """研究领域：{research_domain}
+主题：{theme_label_zh} ({theme_key})
+是否自定义主题：{is_custom}
+地理范围：{geography_labels}
+时间范围：{time_start} 到 {time_end}，今天：{today}
+表格建议：{table_schema}
+
+可用资料：
+{documents}
+
+请生成 ThemeReport JSON。"""),
+])
+
+
+CROSS_VALIDATOR_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """你是市场调研质量审查员。检查多个 ThemeReport 是否存在跨主题冲突、引用缺失、信息缺口未声明。
+仅返回 JSON，不要 Markdown。
+JSON schema:
+{{
+  "should_retry": boolean,
+  "retry_themes": [string],
+  "checks": [{{"code": string, "passed": boolean, "detail": string}}],
+  "quality_flags": [{{"severity": "warn"|"fail", "theme_key": string, "message": string}}],
+  "summary": string
 }}
-""",
-        ),
-    ]
-)
+基础版本中仅在主题完全空白时 should_retry=true。"""),
+    ("human", "ThemeReports:\n{theme_reports_json}"),
+])
 
 
-_EDITOR_L1 = """You are a senior competitive intelligence analyst at a top-tier strategy consultancy.
-Synthesize dimension-level comparisons into a practical executive report.
+EDITOR_MARKET_STUDY_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """你是资深中文市场研究报告编辑。任务是把主题研究骨架整理成汉高市场部可阅读的市场调研报告。
+硬规则：
+- 全文中文。
+- 标题为：# {research_domain}市场调研报告
+- 按固定主题顺序写；未选择的主题不要出现；编号连续。
+- 自定义主题排在固定主题之后、”信息缺口与不确定性说明”与关键来源清单之前。
+- 保留所有 [cite:doc_id] 标记，不要改成数字，不要删除。
+- 每章必须包含至少一个 Markdown 表格，且表格的列名和粒度必须沿用主题骨架中给出的表格（不要把按公司/政策/事件逐行的表合并成按”类别”的抽象表）。
+- 表格中每行的”来源”单元格必须保留 [cite:doc_id] 标记。
+- 必须保留所有具体数字、日期、机构名、产品型号、金额、百分比；不得改写为”约””左右””数据缺失”等模糊表述；若骨架中含具体数字，正文与表格也必须出现。
+- 每章节正文至少引用 5 个不同的 [cite:doc_id]，且分布在不同段落，不要全部堆在末尾。
+- 对预测类判断区分”历史事实”与”未来预测/假设”，并列出主要假设。
+- 在所有主题章节之后、关键来源清单之前，必须输出一个二级标题章节”## 信息缺口与不确定性说明”，用编号列表汇总各主题 data_gaps 与跨主题校验中的 quality_flags，并简述对结论可信度的影响。
+- 不要输出”资料由 AI 生成”等泛泛声明。
+- 不要自行添加”## 关键来源清单”章节，该章节由后处理统一生成。"""),
+    ("human", """研究领域：{research_domain}
+地理范围：{geography_labels}
+时间范围：{time_start} 到 {time_end}，今天：{today}
+章节顺序：
+{section_order}
 
-Non-negotiable rules:
-- Ground every claim in provided evidence.
-- Begin with market lens and comparison basis before conclusions.
-- Mark data gaps and low-confidence claims explicitly.
-- Never convert weak evidence into certainty.
-- If pricing data is weak, explicitly state "public pricing unavailable" and explain fallback evidence.
-- Keep concise professional markdown with clear section structure.
-- Use inline citations in the format (Source Name, Month Year) — e.g. (Reuters, Mar 2025). NEVER use bare numeric references like (1), (8), or [3] in the report body.
-- End with a ## Sources section listing all cited references as numbered clickable markdown links.
-"""
+跨主题校验：
+{validation_summary}
 
-EDITOR_COMPILE_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _EDITOR_L1),
-        (
-            "human",
-            """Compile a competitive intelligence report for **{target_company}**.
+主题骨架：
+{skeleton}
 
-Report type: {report_type_label}
-Research date: {research_date}
-Companies: {target_company} vs {competitors}
-Output language: {language_instruction}
-Market lens: {market_lens}
-Comparison basis: {comparison_basis}
-
-Template:
-{template}
-
-Research comparisons:
-{comparisons_text}
-
-Battlecard data:
-{battlecard_summary}
-
-Competitor rationale:
-{competitor_profiles_text}
-
-Data gaps and confidence:
-{data_gaps_text}
-
-Low-confidence claims:
-{low_confidence_text}
-
-Quality flags:
-{quality_flags_text}
-
-Source references:
-{references_text}
-
-Requirements:
-1. Follow the template structure.
-2. Use explicit numbers for quantitative claims.
-3. Include actionable conclusions with confidence caveats.
-4. End with numbered clickable source links.
-5. If any dimension is marked "comparison unavailable" in Data gaps, do NOT create a section for it — skip it entirely and do not mention it failed. Number the remaining sections sequentially.
-6. Immediately after the Executive Summary, insert a "## Competitive Snapshot" section containing a single markdown table. Columns: Company | Revenue | Growth | Key Strength | Key Risk. Include one row per company (target first, then competitors). Use "N/A" for any unknown value. Keep each cell concise (≤12 words). Do not repeat this table elsewhere in the report.
-""",
-        ),
-    ]
-)
-
-EDITOR_EDIT_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _EDITOR_L1),
-        (
-            "human",
-            """You are revising an existing competitive intelligence report.
-
-Edit mode: {edit_mode}
-Edit instruction: {edit_instruction}
-Report type: {report_type_label}
-Research date: {research_date}
-Companies: {target_company} vs {competitors}
-Output language: {language_instruction}
-Market lens: {market_lens}
-Comparison basis: {comparison_basis}
-
-Current report:
-{current_report}
-
-Updated research:
-{updated_comparisons}
-
-Competitor rationale:
-{competitor_profiles_text}
-
-Data gaps and confidence:
-{data_gaps_text}
-
-Low-confidence claims:
-{low_confidence_text}
-
-Quality flags:
-{quality_flags_text}
-
-Edit mode rules:
-- quick_edit: only apply requested textual changes.
-- targeted_refresh: refresh only sections with updated evidence.
-- full_refresh: rewrite full report using updated evidence.
-Return the full revised report.
-""",
-        ),
-    ]
-)
-
+请输出完整 Markdown 报告。"""),
+])

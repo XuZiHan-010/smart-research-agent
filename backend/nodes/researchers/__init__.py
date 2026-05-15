@@ -1,15 +1,8 @@
-from .product_pricing    import ProductPricingResearcher
-from .market_position    import MarketPositionResearcher
-from .traction_growth    import TractionGrowthResearcher
-from .customer_sentiment import CustomerSentimentResearcher
-from .content_gtm        import ContentGTMResearcher
-from .recent_activity    import RecentActivityResearcher
+"""Legacy researcher package.
 
-RESEARCHER_REGISTRY = {
-    "product_pricing":    ProductPricingResearcher,
-    "market_position":    MarketPositionResearcher,
-    "traction_growth":    TractionGrowthResearcher,
-    "customer_sentiment": CustomerSentimentResearcher,
-    "content_gtm":        ContentGTMResearcher,
-    "recent_activity":    RecentActivityResearcher,
-}
+Competitor-dimension researchers were removed in the Market Study Agent
+restructure. The package remains only so old imports fail softly during
+transition instead of exposing stale registry state.
+"""
+
+RESEARCHER_REGISTRY = {}

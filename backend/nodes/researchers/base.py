@@ -22,7 +22,6 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 from backend.classes.config import (
-    GROUNDING_QUERY_CHARS,
     MAX_RESEARCHER_RETRIES,
     RETRY_DELAY_BASE,
     SEMAPHORE_EXA_SEARCH,
@@ -35,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 _RESTRICTED_CATEGORIES = {"company", "people"}
 _exa_client: Optional[Exa] = None
+GROUNDING_QUERY_CHARS = 2_000
 
 
 def _get_exa() -> Exa:

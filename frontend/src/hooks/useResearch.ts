@@ -1,65 +1,105 @@
-import { useState, useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
-  AppPhase, ResearchConfig, CompanyInput, DiscoverySuggestion,
-  PipelineStage, PipelineNodeId, TodoState, BattlecardData, SSEEvent,
+  AppPhase,
+  CitationRef,
+  ClarificationQuestionnaire,
+  ConfirmScopePayload,
+  PipelineNodeId,
+  PipelineStage,
+  ResearchConfig,
+  SSEEvent,
+  THEME_LABELS,
+  ThemeRunState,
+  TodoState,
+  ValidationSnapshot,
 } from '../types'
 
 const API = import.meta.env.VITE_API_URL ?? ''
 
-// ── Pipeline stage definitions ────────────────────────────────────────────────
-
 const INITIAL_STAGES: PipelineStage[] = [
-  { id: 'router',              label: 'Router',       status: 'idle' },
-  { id: 'grounding',           label: 'Grounding',    status: 'idle' },
-  { id: 'research_dispatcher', label: 'Research',     status: 'idle' },
-  { id: 'collector',           label: 'Collector',    status: 'idle' },
-  { id: 'curator',             label: 'Curator',      status: 'idle' },
-  { id: 'evaluator',           label: 'Evaluator',    status: 'idle' },
-  { id: 'comparator',          label: 'Comparator',   status: 'idle' },
-  { id: 'battlecard_builder',  label: 'Battlecard',   status: 'idle' },
-  { id: 'editor',              label: 'Editor',       status: 'idle' },
-  { id: 'output_formatter',    label: 'Formatter',    status: 'idle' },
+  { id: 'router', label: 'Router', status: 'idle' },
+  { id: 'theme_orchestrator', label: 'Themes', status: 'idle' },
+  { id: 'cross_validator', label: 'Validator', status: 'idle' },
+  { id: 'compactor', label: 'Compact', status: 'idle' },
+  { id: 'editor', label: 'Editor', status: 'idle' },
+  { id: 'citation_resolver', label: 'Citations', status: 'idle' },
+  { id: 'output_formatter', label: 'Output', status: 'idle' },
 ]
 
-// ── Hook ──────────────────────────────────────────────────────────────────────
+const cellToThemeStatus = (cellStatus?: string): ThemeRunState['status'] => {
+  switch (cellStatus) {
+    case 'success': return 'done'
+    case 'partial': return 'researching'
+    case 'error':   return 'failed'
+    case 'empty':   return 'failed'
+    case 'pending': return 'pending'
+    default:        return 'pending'
+  }
+}
 
 export function useResearch() {
-  const [phase,          setPhase]     = useState<AppPhase>('idle')
-  const [stages,         setStages]    = useState<PipelineStage[]>(INITIAL_STAGES)
-  const [statusMessage,  setStatusMsg] = useState('')
-  const [todoState,      setTodoState] = useState<TodoState>({})
-  const [dimLabels,      setDimLabels] = useState<Record<string, string>>({})
-  const [streamedReport, setStreamed]  = useState('')
-  const [finalReport,    setFinal]     = useState('')
-  const [battlecard,     setBattlecard]= useState<BattlecardData | null>(null)
-  const [currentJobId,   setJobId]     = useState<string | null>(null)
-  const [errorMsg,       setError]     = useState('')
-
-  // Discovery phase
-  const [suggestions, setSuggestions] = useState<DiscoverySuggestion[]>([])
-  const [pendingConfig, setPendingCfg] = useState<ResearchConfig | null>(null)
-
-  // Log messages for the terminal panel
+  const [phase, setPhase] = useState<AppPhase>('idle')
+  const [stages, setStages] = useState<PipelineStage[]>(INITIAL_STAGES)
+  const [statusMessage, setStatusMsg] = useState('')
+  const [todoState, setTodoState] = useState<TodoState>({})
+  const [dimLabels, setDimLabels] = useState<Record<string, string>>({})
+  const [streamedReport, setStreamed] = useState('')
+  const [finalReport, setFinal] = useState('')
+  const [currentJobId, setJobId] = useState<string | null>(null)
+  const [errorMsg, setError] = useState('')
   const [logLines, setLogLines] = useState<string[]>([])
+  const [pendingConfig, setPendingCfg] = useState<ResearchConfig | null>(null)
+  const [questionnaire, setQuestionnaire] = useState<ClarificationQuestionnaire | null>(null)
 
-  const esRef        = useRef<EventSource | null>(null)
-  const completedRef = useRef(false)   // tracks SSE success; used in onerror to avoid false failure
+  // ── Agentic loop state ────────────────────────────────────────────────────
+  const [iteration, setIteration] = useState(1)
+  const [themeStates, setThemeStates] = useState<Record<string, ThemeRunState>>({})
+  const [validations, setValidations] = useState<ValidationSnapshot[]>([])
+  const [citations, setCitations] = useState<Record<number, CitationRef>>({})
+  const [retryArc, setRetryArc] = useState<{ id: number; themes: string[]; reason?: string } | null>(null)
 
-  // ── Helpers ─────────────────────────────────────────────────────────────────
+  const esRef = useRef<EventSource | null>(null)
+  const completedRef = useRef(false)
+  const retryArcCounterRef = useRef(0)
 
   const addLog = useCallback((msg: string) => {
     setLogLines(prev => [...prev.slice(-99), msg])
-  }, [])
-
-  const updateStage = useCallback((nodeId: string, patch: Partial<PipelineStage>) => {
-    setStages(prev => prev.map(s => s.id === nodeId ? { ...s, ...patch } : s))
   }, [])
 
   const resetStages = useCallback(() => {
     setStages(INITIAL_STAGES.map(s => ({ ...s, status: 'idle' as const, message: undefined })))
   }, [])
 
-  // ── SSE listener ─────────────────────────────────────────────────────────────
+  const updateStage = useCallback((nodeId: string, patch: Partial<PipelineStage>) => {
+    setStages(prev => prev.map(s => s.id === nodeId ? { ...s, ...patch } : s))
+  }, [])
+
+  // ── Derive ThemeRunState from todoState (fallback when backend doesn't emit theme_progress) ───
+  const derivedThemeStates = useMemo<Record<string, ThemeRunState>>(() => {
+    const dims = Object.keys(dimLabels).length > 0 ? Object.keys(dimLabels) : Object.keys(THEME_LABELS)
+    const out: Record<string, ThemeRunState> = {}
+    const companies = Object.keys(todoState)
+    const group = companies[0] // single research domain
+
+    dims.forEach(dim => {
+      const overlay = themeStates[dim]
+      const cell = group ? todoState[group]?.[dim] : undefined
+      out[dim] = {
+        theme_key: dim,
+        label: dimLabels[dim] || THEME_LABELS[dim] || dim,
+        status: overlay?.status ?? cellToThemeStatus(cell?.status),
+        docs_found: overlay?.docs_found ?? cell?.docs_found ?? 0,
+        quality_score: overlay?.quality_score,
+        confidence: overlay?.confidence,
+        retry_count: overlay?.retry_count ?? 0,
+        citations_count: overlay?.citations_count ?? 0,
+        gaps: overlay?.gaps,
+        queries: overlay?.queries,
+        sources: overlay?.sources,
+      }
+    })
+    return out
+  }, [todoState, dimLabels, themeStates])
 
   const attachSSE = useCallback((jobId: string) => {
     esRef.current?.close()
@@ -73,26 +113,85 @@ export function useResearch() {
       if (evt.type === 'status') {
         const nodeId = evt.node as PipelineNodeId | undefined
         if (nodeId) {
-          // Mark previously active stage as done
-          setStages(prev => prev.map(s =>
-            s.status === 'active' ? { ...s, status: 'done' } : s
-          ))
-          updateStage(nodeId, { status: 'active', message: evt.message })
+          setStages(prev => prev.map(s => s.status === 'active' ? { ...s, status: 'done' } : s))
+          updateStage(nodeId, { status: 'active', message: evt.message, iteration })
         }
         setStatusMsg(evt.message)
-        addLog(`[${evt.node ?? '—'}] ${evt.message}`)
+        addLog(`[${evt.node ?? '-'}] ${evt.message}`)
       }
 
-      if (evt.type === 'todo') {
+      else if (evt.type === 'todo') {
         setTodoState(evt.todo_state)
         setDimLabels(evt.dim_labels)
       }
 
-      if (evt.type === 'stream') {
+      else if (evt.type === 'stream') {
         setStreamed(prev => prev + evt.content)
       }
 
-      if (evt.type === 'complete') {
+      else if (evt.type === 'theme_progress') {
+        setThemeStates(prev => {
+          const existing = prev[evt.theme_key]
+          const next: ThemeRunState = {
+            theme_key: evt.theme_key,
+            label: evt.state.label ?? existing?.label ?? THEME_LABELS[evt.theme_key] ?? evt.theme_key,
+            status: evt.state.status ?? existing?.status ?? 'pending',
+            docs_found: evt.state.docs_found ?? existing?.docs_found ?? 0,
+            quality_score: evt.state.quality_score ?? existing?.quality_score,
+            confidence: evt.state.confidence ?? existing?.confidence,
+            retry_count: evt.state.retry_count ?? existing?.retry_count ?? 0,
+            citations_count: evt.state.citations_count ?? existing?.citations_count ?? 0,
+            gaps: evt.state.gaps ?? existing?.gaps,
+            queries: evt.state.queries ?? existing?.queries,
+            sources: evt.state.sources ?? existing?.sources,
+          }
+          return { ...prev, [evt.theme_key]: next }
+        })
+      }
+
+      else if (evt.type === 'validation') {
+        setValidations(prev => [...prev, evt.snapshot])
+        setIteration(evt.snapshot.iteration)
+        addLog(`[validator] iter ${evt.snapshot.iteration} → ${evt.snapshot.decision} (score ${evt.snapshot.overall_score})`)
+      }
+
+      else if (evt.type === 'retry') {
+        retryArcCounterRef.current += 1
+        setRetryArc({ id: retryArcCounterRef.current, themes: evt.themes, reason: evt.reason })
+        setIteration(evt.iteration)
+        // mark stages as retrying
+        updateStage('theme_orchestrator', { status: 'retrying', iteration: evt.iteration })
+        // mark themes as retrying
+        setThemeStates(prev => {
+          const next = { ...prev }
+          evt.themes.forEach(k => {
+            const existing = next[k]
+            next[k] = {
+              theme_key: k,
+              label: existing?.label ?? THEME_LABELS[k] ?? k,
+              status: 'retrying',
+              docs_found: existing?.docs_found ?? 0,
+              retry_count: (existing?.retry_count ?? 0) + 1,
+              citations_count: existing?.citations_count ?? 0,
+              quality_score: existing?.quality_score,
+              confidence: existing?.confidence,
+              gaps: existing?.gaps,
+              queries: existing?.queries,
+              sources: existing?.sources,
+            }
+          })
+          return next
+        })
+        addLog(`[retry] iter ${evt.iteration} → ${evt.themes.length} themes: ${evt.themes.join(', ')}`)
+        // clear arc after 1.5s
+        setTimeout(() => setRetryArc(null), 1500)
+      }
+
+      else if (evt.type === 'citation_resolved') {
+        setCitations(prev => ({ ...prev, [evt.citation.index]: evt.citation }))
+      }
+
+      else if (evt.type === 'complete') {
         completedRef.current = true
         setStages(prev => prev.map(s => ({ ...s, status: 'done' as const })))
         setFinal(evt.report ?? '')
@@ -100,137 +199,84 @@ export function useResearch() {
         setStatusMsg('Research complete')
         addLog('Pipeline complete.')
         es.close()
-
-        // Fetch battlecard separately
-        if (jobId) {
-          fetch(`${API}/api/research/${jobId}/battlecard`)
-            .then(r => r.ok ? r.json() : null)
-            .then(d => { if (d?.battlecard?.target) setBattlecard(d.battlecard) })
-            .catch(() => {})
-        }
       }
 
-      if (evt.type === 'error') {
+      else if (evt.type === 'error') {
         setPhase('failed')
         setError(evt.message)
         setStatusMsg(evt.message)
-        setStages(prev => prev.map(s =>
-          s.status === 'active' ? { ...s, status: 'error' as const } : s
-        ))
+        setStages(prev => prev.map(s => s.status === 'active' ? { ...s, status: 'error' as const } : s))
         addLog(`ERROR: ${evt.message}`)
         es.close()
       }
     }
 
     es.onerror = () => {
-      // completedRef avoids false failure when es.close() triggers onerror after success
       if (!completedRef.current) {
         setPhase('failed')
-        setError('Connection lost — please try again')
+        setError('Connection lost - please try again')
         setStatusMsg('Connection lost')
       }
       es.close()
     }
-  }, [addLog, updateStage])
+  }, [addLog, iteration, updateStage])
 
-  // ── Public actions ───────────────────────────────────────────────────────────
-
-  /** Step 1a: user clicks "Auto-Discover" */
-  const discoverCompetitors = useCallback(async (config: ResearchConfig) => {
+  const startClarification = useCallback(async (config: ResearchConfig) => {
     setPendingCfg(config)
-    setPhase('discovering')
+    setPhase('clarifying')
     setError('')
+    setQuestionnaire(null)
+    setStreamed('')
+    setFinal('')
+    resetStages()
     try {
-      const res = await fetch(`${API}/api/research/discover`, {
+      const res = await fetch(`${API}/api/research/clarify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target_company: config.target_company,
-          target_website: config.target_website,
-          competitors:    config.competitorNames,
-        }),
+        body: JSON.stringify({ confirmed_domain: config.researchDomain }),
       })
+      if (!res.ok) throw new Error('Failed to build questionnaire')
       const data = await res.json()
-      setSuggestions(data.suggestions ?? [])
-      setPhase('confirming')
-    } catch {
-      setError('Discovery failed — check your connection')
-      setPhase('idle')
+      setQuestionnaire(data)
+      setPhase('confirming_scope')
+    } catch (err) {
+      setPhase('failed')
+      setError(err instanceof Error ? err.message : 'Clarification failed')
     }
-  }, [])
+  }, [resetStages])
 
-  /** Step 1b: user confirms discovered + manual competitors, or skips discovery */
-  const startWithCompanies = useCallback(async (
-    config:       ResearchConfig,
-    allCompanies: CompanyInput[],
-  ) => {
+  const confirmScope = useCallback(async (payload: ConfirmScopePayload) => {
     setPhase('running')
     resetStages()
     setStreamed('')
     setFinal('')
-    setBattlecard(null)
     setTodoState({})
     setLogLines([])
     setError('')
-
+    setIteration(1)
+    setThemeStates({})
+    setValidations([])
+    setCitations({})
+    setRetryArc(null)
     try {
-      const res = await fetch(`${API}/api/research/start`, {
+      const res = await fetch(`${API}/api/research/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target_company: config.target_company,
-          target_website: config.target_website,
-          all_companies:  allCompanies,
-          report_type:    config.report_type,
-          depth:          config.depth,
-          output_format:  config.output_format,
-          language:       config.language,
-          template:       config.template,
-        }),
+        body: JSON.stringify(payload),
       })
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.detail ?? 'Failed to start research')
       }
       const data = await res.json()
-      const jobId: string = data.job_id
-      setJobId(jobId)
-      attachSSE(jobId)
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to start research'
+      setJobId(data.job_id)
+      attachSSE(data.job_id)
+    } catch (err) {
       setPhase('failed')
-      setError(msg)
+      setError(err instanceof Error ? err.message : 'Failed to start research')
     }
-  }, [resetStages, attachSSE])
+  }, [attachSSE, resetStages])
 
-  /** Edit an existing report */
-  const editReport = useCallback(async (
-    jobId:       string,
-    mode:        'quick_edit' | 'targeted_refresh' | 'full_refresh',
-    instruction: string,
-  ) => {
-    setPhase('running')
-    resetStages()
-    setStreamed('')
-    setLogLines([])
-    setError('')
-
-    try {
-      const res = await fetch(`${API}/api/research/${jobId}/edit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ edit_mode: mode, edit_instruction: instruction }),
-      })
-      if (!res.ok) throw new Error('Edit request failed')
-      attachSSE(jobId)
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Edit failed'
-      setPhase('failed')
-      setError(msg)
-    }
-  }, [resetStages, attachSSE])
-
-  /** Reset everything back to idle */
   const reset = useCallback(() => {
     esRef.current?.close()
     setPhase('idle')
@@ -240,16 +286,19 @@ export function useResearch() {
     setDimLabels({})
     setStreamed('')
     setFinal('')
-    setBattlecard(null)
     setJobId(null)
     setError('')
-    setSuggestions([])
-    setPendingCfg(null)
     setLogLines([])
+    setPendingCfg(null)
+    setQuestionnaire(null)
+    setIteration(1)
+    setThemeStates({})
+    setValidations([])
+    setCitations({})
+    setRetryArc(null)
   }, [resetStages])
 
   return {
-    // state
     phase,
     stages,
     statusMessage,
@@ -257,17 +306,20 @@ export function useResearch() {
     dimLabels,
     streamedReport,
     finalReport,
-    battlecard,
     currentJobId,
     errorMsg,
     logLines,
-    // discovery
-    suggestions,
     pendingConfig,
+    questionnaire,
+    // agentic loop
+    iteration,
+    themeStates: derivedThemeStates,
+    validations,
+    citations,
+    retryArc,
     // actions
-    discoverCompetitors,
-    startWithCompanies,
-    editReport,
+    startClarification,
+    confirmScope,
     reset,
   }
 }

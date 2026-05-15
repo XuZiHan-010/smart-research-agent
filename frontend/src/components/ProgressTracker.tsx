@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { PipelineStage, TodoState, CellStatus, DIMENSION_LABELS } from '../types'
+import { PipelineStage, TodoState, CellStatus, THEME_LABELS } from '../types'
 
 interface Props {
   stages:        PipelineStage[]
@@ -40,7 +40,7 @@ const STAGE_COLOR: Record<string, string> = {
 
 export function ProgressTracker({ stages, statusMessage, todoState, dimLabels, logLines }: Props) {
   const companies  = Object.keys(todoState)
-  const dims       = Object.keys(dimLabels).length > 0 ? Object.keys(dimLabels) : Object.keys(DIMENSION_LABELS)
+  const dims       = Object.keys(dimLabels).length > 0 ? Object.keys(dimLabels) : Object.keys(THEME_LABELS)
   const doneCount  = stages.filter(s => s.status === 'done').length
   const pct        = Math.round((doneCount / stages.length) * 100)
   const hasTodo    = companies.length > 0
@@ -118,16 +118,16 @@ export function ProgressTracker({ stages, statusMessage, todoState, dimLabels, l
       {hasTodo && (
         <div className="border border-border rounded bg-elevated p-3">
           <p className="font-mono text-[10px] uppercase tracking-widest text-text-muted mb-3">
-            Research Matrix — {companies.length} co. × {dims.length} dim.
+            Theme Matrix — {dims.length} theme{dims.length !== 1 ? 's' : ''}
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-[9px] font-mono border-collapse">
               <thead>
                 <tr>
-                  <th className="text-left pb-2 pr-3 text-text-muted font-normal w-24">Company</th>
+                  <th className="text-left pb-2 pr-3 text-text-muted font-normal w-24">Group</th>
                   {dims.map(d => (
                     <th key={d} className="pb-2 px-1 text-text-muted font-normal text-center">
-                      {(dimLabels[d] || DIMENSION_LABELS[d] || d).split(' ')[0]}
+                      {(dimLabels[d] || THEME_LABELS[d] || d).slice(0, 4)}
                     </th>
                   ))}
                 </tr>

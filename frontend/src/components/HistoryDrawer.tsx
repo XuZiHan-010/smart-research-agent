@@ -120,23 +120,19 @@ export function HistoryDrawer({ open, onClose, onLoad }: Props) {
                       : 'opacity-60 cursor-default'
                     }`}
                 >
-                  {/* Company + status */}
+                  {/* Domain + status */}
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-text-primary font-medium truncate">
-                        {job.target_company}
+                        {job.research_domain}
                       </p>
                       <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                        {job.competitors?.slice(0, 3).map(c => (
-                          <span key={c} className="font-mono text-[10px] text-text-muted">
-                            vs {c}
-                          </span>
-                        ))}
-                        {(job.competitors?.length ?? 0) > 3 && (
-                          <span className="font-mono text-[10px] text-text-muted">
-                            +{job.competitors.length - 3} more
-                          </span>
-                        )}
+                        <span className="font-mono text-[10px] text-text-muted">
+                          {(job.selected_themes?.length ?? 0) + (job.custom_themes?.length ?? 0)} themes
+                        </span>
+                        <span className="font-mono text-[10px] text-text-muted">
+                          {job.geography?.join(', ') || 'cn'}
+                        </span>
                       </div>
                     </div>
                     <StatusBadge status={job.status} />
@@ -144,7 +140,7 @@ export function HistoryDrawer({ open, onClose, onLoad }: Props) {
 
                   {/* Meta */}
                   <div className="flex items-center gap-2 text-[10px] font-mono text-text-muted">
-                    <span className="capitalize">{job.report_type?.replace(/_/g, ' ')}</span>
+                    <span>{job.output_format?.toUpperCase()}</span>
                     <span>·</span>
                     <span className="capitalize">{job.depth?.replace('_', ' ')}</span>
                     <span>·</span>
