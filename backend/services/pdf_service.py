@@ -369,6 +369,7 @@ class PDFService:
         story  = []
         lines  = text.splitlines()
         bullets: list = []
+        table_buffer: list = []  # accumulates consecutive markdown table rows
 
         # Skip the title/metadata block (already on cover page)
         skip_until_section = True
@@ -380,8 +381,42 @@ class PDFService:
                 story.append(Spacer(1, 4))
                 bullets.clear()
 
+        def flush_table():
+            if table_buffer:
+                tbl = self._build_table(list(table_buffer), styles)
+                if tbl is not None:
+                    story.append(Spacer(1, 4))
+                    story.append(tbl)
+                    story.append(Spacer(1, 8))
+                table_buffer.clear()
+
         for raw_line in lines:
             line = raw_line.rstrip()
+            stripped = line.strip()
+
+            # ── markdown table detection ─────────────────────────────────
+            # A table row starts and ends with "|" and contains at least one "|" in the middle.
+            is_table_row = (
+                len(stripped) >= 2
+                and stripped.startswith("|")
+                and stripped.endswith("|")
+                and stripped.count("|") >= 2
+            )
+            if is_table_row:
+                # separator row like |---|---| or |:---|---:|  → skip but keep table open
+                inner = stripped.strip("|")
+                if inner.replace("|", "").replace("-", "").replace(":", "").replace(" ", "") == "":
+                    continue
+                # cells: split by "|", trim whitespace
+                cells = [c.strip() for c in stripped.strip("|").split("|")]
+                table_buffer.append(cells)
+                # if we were skipping (header block), table also signals real content
+                if skip_until_section:
+                    skip_until_section = False
+                continue
+            else:
+                # non-table line — flush any pending table before processing
+                flush_table()
 
             # Skip title block until first ## section
             if skip_until_section:
@@ -453,7 +488,83 @@ class PDFService:
                 story.append(Paragraph(self._inline(line), styles["body"]))
 
         flush_bullets()
+        flush_table()
         return story
+
+    # ── markdown table → ReportLab Table ─────────────────────────────────
+    def _build_table(self, rows: list, styles: dict):
+        """Convert a list-of-list-of-cells markdown table into a styled Table flowable."""
+        if not rows:
+            return None
+        # Normalize column count (longest row wins)
+        max_cols = max(len(r) for r in rows)
+        if max_cols == 0:
+            return None
+        for r in rows:
+            while len(r) < max_cols:
+                r.append("")
+
+        # Adaptive font size based on column count
+        if max_cols <= 3:
+            font_size = 9
+            cell_leading = 12
+        elif max_cols <= 5:
+            font_size = 8
+            cell_leading = 11
+        else:
+            font_size = 7
+            cell_leading = 10
+
+        # Cell paragraph styles (so long content wraps inside cells)
+        header_style = ParagraphStyle(
+            "TableHeader",
+            fontName=self._font_bold,
+            fontSize=font_size,
+            leading=cell_leading,
+            textColor=colors.white,
+            alignment=TA_CENTER,
+        )
+        body_style = ParagraphStyle(
+            "TableCell",
+            fontName=self._font,
+            fontSize=font_size,
+            leading=cell_leading,
+            textColor=_BRAND_TEXT,
+            alignment=TA_LEFT,
+        )
+
+        # Wrap each cell content in a Paragraph for auto-wrapping
+        data = []
+        for i, row in enumerate(rows):
+            style = header_style if i == 0 else body_style
+            data.append([Paragraph(self._inline(c) if c else "&nbsp;", style) for c in row])
+
+        # Distribute width evenly across A4 usable area (21cm - 2.5cm*2 margins = 16cm)
+        usable_width = 16 * cm
+        col_widths = [usable_width / max_cols] * max_cols
+
+        tbl = Table(data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
+        tbl.setStyle(TableStyle([
+            # Header row
+            ("BACKGROUND",    (0, 0), (-1, 0), colors.HexColor("#4472C4")),
+            ("TEXTCOLOR",     (0, 0), (-1, 0), colors.white),
+            ("ALIGN",         (0, 0), (-1, 0), "CENTER"),
+            ("VALIGN",        (0, 0), (-1, 0), "MIDDLE"),
+            ("TOPPADDING",    (0, 0), (-1, 0), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+            # Body
+            ("VALIGN",        (0, 1), (-1, -1), "TOP"),
+            ("ALIGN",         (0, 1), (-1, -1), "LEFT"),
+            ("TOPPADDING",    (0, 1), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 1), (-1, -1), 4),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
+            # Borders + alternating row colours
+            ("BOX",           (0, 0), (-1, -1), 0.5, colors.HexColor("#bfbfbf")),
+            ("INNERGRID",     (0, 0), (-1, -1), 0.25, colors.HexColor("#d9d9d9")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F2F2F7")]),
+        ]))
+        return tbl
 
     def _inline(self, text: str) -> str:
         """Convert inline markdown (bold, italic, links) to ReportLab XML."""

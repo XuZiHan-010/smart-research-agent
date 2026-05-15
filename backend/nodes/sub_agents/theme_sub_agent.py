@@ -2,8 +2,10 @@
 
 import asyncio
 import json
+import logging
 import os
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -11,7 +13,67 @@ from exa_py import Exa
 from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
 
-from backend.classes.config import SEMAPHORE_EXA_SEARCH
+from backend.classes.config import (
+    LLM_RATELIMIT_BACKOFF_BASE,
+    LLM_RATELIMIT_MAX_RETRIES,
+    SEMAPHORE_EXA_SEARCH,
+    WRITER_DOCS_CHAR_BUDGET,
+    WRITER_PER_DOC_EXCERPT_LIMIT,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """Detect OpenAI / generic 429 rate-limit errors across SDKs without
+    importing the openai package (which the langchain_openai wrapper may
+    re-raise under different class names). Matches only on strong markers
+    so user-facing errors that incidentally mention 'rate limit' don't
+    trigger backoff."""
+    name = type(exc).__name__
+    if "RateLimit" in name:
+        return True
+    msg = str(exc)
+    return (
+        "Error code: 429" in msg
+        or "tokens per min" in msg
+        or "Rate limit reached" in msg
+        or "rate_limit_exceeded" in msg
+    )
+
+
+async def _retry_on_ratelimit(
+    fn: Callable[[], Awaitable[Any]],
+    *,
+    label: str,
+    max_retries: int = LLM_RATELIMIT_MAX_RETRIES,
+    base_delay: float = LLM_RATELIMIT_BACKOFF_BASE,
+) -> Any:
+    """Run an async LLM call with exponential backoff on 429 rate-limit errors.
+    Other exceptions propagate immediately."""
+    last_exc: Optional[BaseException] = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            return await fn()
+        except Exception as exc:  # noqa: BLE001 — we re-raise if not rate-limit
+            if not _is_rate_limit_error(exc):
+                raise
+            last_exc = exc
+            if attempt == max_retries:
+                break
+            # Honor server-provided retry hint if present (e.g. "Please try again in 23s").
+            hint_match = re.search(r"try again in ([\d.]+)s", str(exc), re.IGNORECASE)
+            if hint_match:
+                delay = float(hint_match.group(1)) + 1.0
+            else:
+                delay = base_delay * (2 ** (attempt - 1))
+            logger.warning(
+                "rate_limit_backoff label=%s attempt=%d/%d sleep=%.1fs err=%s",
+                label, attempt, max_retries, delay, str(exc)[:200],
+            )
+            await asyncio.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
 from backend.classes.market_study_config import (
     AUTHORITATIVE_DOMAINS_BY_THEME,
     GEOGRAPHY_LABELS_ZH,
@@ -61,7 +123,8 @@ class ThemeSubAgent:
         self.theme_label_zh = theme_label_zh
         self.is_custom = is_custom
         self.query_llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0, streaming=False)
-        self.writer_llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.2, streaming=False)
+        self.writer_llm = ChatOpenAI(model="gpt-4.1", temperature=0.2, streaming=False)
+        self.writer_model_name = "gpt-4.1"
         self.search_semaphore = asyncio.Semaphore(SEMAPHORE_EXA_SEARCH)
 
     async def run(
@@ -93,11 +156,11 @@ class ThemeSubAgent:
         await record_trace(
             self.job_id,
             node="theme_sub_agent",
-            model="gpt-4.1-mini",
+            model=self.writer_model_name,
             prompt_name="THEME_REPORT_PROMPT",
             input_summary=f"{research_domain} / {self.theme_label_zh} / docs={len(documents)}",
             output_summary=str(report.get("narrative", ""))[:800],
-            metadata={"theme_key": self.theme_key, "doc_count": len(documents)},
+            metadata={"theme_key": self.theme_key, "doc_count": len(documents), "retried": report.get("_retried", False)},
         )
         return report
 
@@ -141,7 +204,7 @@ class ThemeSubAgent:
         n_queries: int,
     ) -> List[str]:
         chain = THEME_QUERY_PROMPT | self.query_llm | StrOutputParser()
-        raw = await chain.ainvoke({
+        payload = {
             "research_domain": research_domain,
             "theme_label_zh": self.theme_label_zh,
             "geography_labels": geography_labels,
@@ -149,7 +212,11 @@ class ThemeSubAgent:
             "time_end": time_range.get("end", ""),
             "authoritative_domains": ", ".join(AUTHORITATIVE_DOMAINS_BY_THEME.get(self.theme_key, [])),
             "format_guidelines": QUERY_FORMAT_GUIDELINES.format(num_queries=n_queries),
-        })
+        }
+        raw = await _retry_on_ratelimit(
+            lambda: chain.ainvoke(payload),
+            label=f"query_gen:{self.theme_key}",
+        )
         await record_trace(
             self.job_id,
             node="query_generator",
@@ -208,15 +275,13 @@ class ThemeSubAgent:
         if not documents:
             return self._empty_report()
 
-        docs_text = "\n\n".join(
-            f"[{doc['doc_id']}] {doc.get('title')} ({doc.get('source')})\n"
-            f"URL: {doc.get('url')}\n"
-            f"Date: {doc.get('published_date') or 'unknown'}\n"
-            f"Excerpt: {doc.get('excerpt') or 'No excerpt'}"
-            for doc in documents
-        )
-        chain = THEME_REPORT_PROMPT | self.writer_llm | StrOutputParser()
-        raw = await chain.ainvoke({
+        docs_text, used_count = self._pack_documents_for_writer(documents)
+        if used_count < len(documents):
+            logger.info(
+                "writer_docs_packed theme=%s used=%d/%d budget=%d chars",
+                self.theme_key, used_count, len(documents), WRITER_DOCS_CHAR_BUDGET,
+            )
+        base_input = {
             "research_domain": research_domain,
             "theme_key": self.theme_key,
             "theme_label_zh": self.theme_label_zh,
@@ -227,7 +292,91 @@ class ThemeSubAgent:
             "today": time_range.get("today", ""),
             "table_schema": "自定义主题：如适用请自行设计表格" if self.is_custom else THEME_TABLE_SCHEMAS.get(self.theme_key, ""),
             "documents": docs_text,
-        })
+        }
+
+        report = await self._invoke_writer(base_input, documents)
+
+        # Quality gate: retry once with feedback if report has critical gaps.
+        issues = self._assess_quality(report)
+        if issues:
+            feedback = (
+                "[系统反馈：上次输出存在以下质量问题，请重新生成完整的 ThemeReport JSON，"
+                "保留原有信息并修正这些问题，不要降级或简化：]\n- "
+                + "\n- ".join(issues)
+            )
+            retry_input = dict(base_input)
+            retry_input["documents"] = docs_text + "\n\n" + feedback
+            retried = await self._invoke_writer(retry_input, documents)
+            # Only adopt the retry if it actually improves quality; otherwise keep original.
+            if len(self._assess_quality(retried)) < len(issues):
+                retried["_retried"] = True
+                report = retried
+            else:
+                report["_retried"] = False
+                report.setdefault("data_gaps", [])
+                report["data_gaps"] = list(report["data_gaps"]) + [
+                    f"质量门控提示（重跑未改善）：{issue}" for issue in issues
+                ]
+
+        return report
+
+    def _pack_documents_for_writer(
+        self, documents: List[Dict[str, Any]]
+    ) -> tuple[str, int]:
+        """Pack documents into a single docs_text string bounded by
+        WRITER_DOCS_CHAR_BUDGET. Iterates in given order (already score-sorted
+        by _collect_documents), truncates each excerpt to
+        WRITER_PER_DOC_EXCERPT_LIMIT, and stops adding once the global budget
+        is exhausted. Returns (docs_text, count_used).
+
+        This is the hard guard that keeps single LLM requests below the
+        OpenAI gpt-4.1 TPM limit regardless of depth setting."""
+        parts: List[str] = []
+        remaining = WRITER_DOCS_CHAR_BUDGET
+        used = 0
+        separator_len = 2  # "\n\n"
+
+        for doc in documents:
+            raw_excerpt = (doc.get("excerpt") or "No excerpt")
+            excerpt = raw_excerpt[:WRITER_PER_DOC_EXCERPT_LIMIT]
+            block = (
+                f"[{doc['doc_id']}] {doc.get('title')} ({doc.get('source')})\n"
+                f"URL: {doc.get('url')}\n"
+                f"Date: {doc.get('published_date') or 'unknown'}\n"
+                f"Excerpt: {excerpt}"
+            )
+            cost = len(block) + (separator_len if parts else 0)
+            if cost > remaining:
+                # Try a smaller excerpt if even the metadata + tiny excerpt fits.
+                shrunk_excerpt_budget = remaining - cost + len(excerpt) - 200
+                if shrunk_excerpt_budget >= 300:
+                    excerpt = excerpt[:shrunk_excerpt_budget]
+                    block = (
+                        f"[{doc['doc_id']}] {doc.get('title')} ({doc.get('source')})\n"
+                        f"URL: {doc.get('url')}\n"
+                        f"Date: {doc.get('published_date') or 'unknown'}\n"
+                        f"Excerpt: {excerpt}"
+                    )
+                    cost = len(block) + (separator_len if parts else 0)
+                    if cost <= remaining:
+                        parts.append(block)
+                        remaining -= cost
+                        used += 1
+                break
+            parts.append(block)
+            remaining -= cost
+            used += 1
+
+        return "\n\n".join(parts), used
+
+    async def _invoke_writer(
+        self, input_dict: Dict[str, Any], documents: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        chain = THEME_REPORT_PROMPT | self.writer_llm | StrOutputParser()
+        raw = await _retry_on_ratelimit(
+            lambda: chain.ainvoke(input_dict),
+            label=f"writer:{self.theme_key}",
+        )
         try:
             report = _json_loads(raw)
         except Exception:
@@ -247,6 +396,35 @@ class ThemeSubAgent:
             for doc in documents
         })
         return report
+
+    def _assess_quality(self, report: Dict[str, Any]) -> List[str]:
+        """Return a list of quality issues. Empty list = pass."""
+        issues: List[str] = []
+
+        citations = report.get("citations") or {}
+        if isinstance(citations, dict) and len(citations) < 5:
+            issues.append(f"citations 仅 {len(citations)} 条，需 ≥ 5 个不同 doc_id")
+
+        narrative = report.get("narrative") or ""
+        if len(narrative) < 400:
+            issues.append(f"narrative 长度 {len(narrative)} 字，需 ≥ 400 字")
+
+        key_entities = report.get("key_entities") or {}
+        if isinstance(key_entities, dict):
+            non_empty = sum(1 for v in key_entities.values() if v)
+            if non_empty < 2:
+                issues.append(f"key_entities 仅 {non_empty} 类有内容，需 ≥ 2 类（公司/政策/事件/产品/数据等）")
+
+        tables = report.get("tables") or []
+        if not tables:
+            issues.append("tables 为空，每个主题至少需要 1 个表格")
+        else:
+            # crude row-count proxy via pipe count: header + separator + ≥3 data rows = 5 lines ≈ 10 pipes
+            longest = max(((t.get("markdown") or "").count("\n") for t in tables), default=0)
+            if longest < 4:
+                issues.append("tables 行数过少，每个表格至少需要 ≥ 3 数据行（不含表头与分隔行）")
+
+        return issues
 
     def _empty_report(self) -> Dict[str, Any]:
         return {

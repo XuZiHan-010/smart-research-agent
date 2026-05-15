@@ -17,6 +17,36 @@ def _theme_specs(selected_themes: List[str], custom_themes: List[str]) -> List[T
     return specs
 
 
+# Marker narratives produced by failure / empty-doc paths. If a cached
+# checkpoint matches one of these, re-run the sub-agent instead of reusing it.
+_FAILED_NARRATIVES = {
+    "公开资料不足，无法形成可靠结论。",            # ThemeSubAgent._empty_report()
+    "该主题研究失败，已记录为信息缺口。",          # theme_orchestrator exception fallback (below)
+}
+
+
+def _is_failed_checkpoint(report: Dict[str, Any]) -> bool:
+    """A checkpoint is 'failed' if it carries the empty/error marker narrative,
+    has zero citations, or is otherwise unusable. Such checkpoints should NOT
+    be reused on resume — give the sub-agent another chance instead."""
+    if not isinstance(report, dict):
+        return True
+    narrative = (report.get("narrative") or "").strip()
+    if narrative in _FAILED_NARRATIVES:
+        return True
+    citations = report.get("citations") or {}
+    if not citations:
+        return True
+    # If a previous run recorded a rate-limit / API error into data_gaps,
+    # don't lock that in — a retry may now succeed.
+    data_gaps = report.get("data_gaps") or []
+    for gap in data_gaps:
+        gap_text = str(gap)
+        if "RateLimitError" in gap_text or "API调用受限" in gap_text:
+            return True
+    return False
+
+
 async def theme_orchestrator_node(state: ResearchState) -> Dict[str, Any]:
     specs = _theme_specs(state.get("selected_themes", []), state.get("custom_themes", []))
     checkpoints = await db.get_checkpoints(state["job_id"])
@@ -28,8 +58,15 @@ async def theme_orchestrator_node(state: ResearchState) -> Dict[str, Any]:
     }]
 
     async def run_one(theme_key: str, label: str, is_custom: bool) -> Dict[str, Any]:
-        if theme_key in checkpoints:
-            return checkpoints[theme_key]
+        cached = checkpoints.get(theme_key)
+        if cached is not None and not _is_failed_checkpoint(cached):
+            return cached
+        if cached is not None:
+            events.append({
+                "type": "status",
+                "node": "theme_orchestrator",
+                "message": f"主题 {label} 上次为失败/空 checkpoint，重跑",
+            })
         async with semaphore:
             depth_name = state.get("theme_depths", {}).get(theme_key, state.get("depth", "standard"))
             depth_cfg = DEPTH_CONFIGS.get(depth_name, DEPTH_CONFIGS["standard"])
