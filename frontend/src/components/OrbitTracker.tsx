@@ -226,6 +226,7 @@ export function OrbitTracker({
                   <motion.circle
                     cx={x} cy={y}
                     r={r}
+                    initial={{ r }}
                     className={clsx(STATUS_FILL[t.status], 'transition-all')}
                     strokeWidth={1.5}
                     animate={active ? { r: [r - 2, r + 2, r - 2] } : { r }}
